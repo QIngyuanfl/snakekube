@@ -1,0 +1,111 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*- ￼
+# Author: Qingyuan Zhang
+# Date: 2020/07/09
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import time
+import string
+import random
+import argparse
+from kubernetes import config
+from kubernetes.client import Configuration
+from kubernetes.client.api import core_v1_api
+from kubernetes.client.rest import ApiException
+
+class SnakeJob:
+    def __init__(self):
+        resp = None
+    def exec_commands(self, cmd = None, image = None, cpu = None, memory = None, pvc = None, mountPath = '/project'):
+        random.seed(time.time())
+        letters = string.ascii_lowercase
+        rand_letters = ''.join(random.choices(letters, k = 5))
+        name = f'{cmd.split()[0]}-{rand_letters}'
+        pod_manifest = {
+            'apiversion': 'v1',
+            'kind': 'Pod', 
+            'metadata': {
+                'name': name
+            },
+            'spec': {
+                'containers': [{
+                    'image': image,
+                    'name': cmd.split()[0],
+                    'args': [
+                        'sh',
+                        '-c',
+                        cmd
+                    ],
+                    'resources': {
+                        'requests': {
+                            'cpu': cpu,
+                            'memory': memory
+                        },
+                        'limits': {
+                            'cpu': cpu +2,
+                            'memory': memory
+                        }
+                    },
+                    'volumeMounts': [{
+                        'name': pvc,
+                        'mountPath': mountPath
+                        }]
+                }],
+                'volumes': [{
+                    'name': pvc, 
+                    'persistentVolumeClaim': {
+                        'claimName': pvc
+                    }
+                }],
+                'restartPolicy': 'Never'
+            }
+        }
+        resp = core_v1_api.CoreV1Api().create_namespaced_pod(body=pod_manifest, namespace='default')
+        while True:
+            resp = core_v1_api.CoreV1Api().read_namespaced_pod(name=name, 
+            namespace= 'default')
+            if resp.status.phase != 'Pending':
+                break
+            time.sleep(1)
+        print(f'POD {name} Running')
+        # get stdout from logs
+        core_v1_api.CoreV1Api().read_namespaced_pod_log(name, namespace = 'default', follow = True)
+        # Check Pod status
+        resp = core_v1_api.CoreV1Api().read_namespaced_pod(name=name, 
+            namespace= 'default')
+        time.sleep(1)
+        assert resp.status.phase == 'Completed', f'pod {name} exit with errors'
+
+def main():
+    config.load_kube_config()
+    c = Configuration()
+    c.assert_hostname = False
+    Configuration.set_default(c)
+    cmd = ' '.join(args.cmd)
+    image = args.image
+    cpu = args.cpu
+    memory = args.ram
+    pvc = args.pvc
+    jobs  = SnakeJob()
+    jobs.exec_commands(cmd = cmd, image = image, cpu = cpu, memory = memory, pvc = pvc)
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='turn snakemake jobs to pods')
+    parser.add_argument('-m', '--image', help = "Docker image name")
+    parser.add_argument('-c', '--cmd', nargs = '+', help = 'shell commad to run in container')
+    parser.add_argument('-p', '--cpu', default = 1, help = 'how many cpus to apply')
+    parser.add_argument('-r', '--ram', help = 'how many memories to apply')
+    parser.add_argument('-s', '--pvc', help = 'the existing name of a persistance volumens claims')
+    parser.add_argument('--config', help = 'Optionally,  you could provide a yaml configuration file instead of args')
+    args = parser.parse_args()
+    main()
