@@ -13,6 +13,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import time
 import string
 import random
@@ -24,7 +25,7 @@ from kubernetes.client.api import core_v1_api
 from kubernetes.client.rest import ApiException
 
 class SnakeJob:
-    def exec_commands(self, cmd = None, image = None, cpu = None, memory = None, pvc = None, mountPath = '/project'):
+    def exec_commands(self, cmd = None, image = None, cpu = None, memory = None, pvc = None, mountPath = '/project', labels = None):
         random.seed(time.time())
         letters = string.ascii_lowercase
         rand_letters = ''.join(random.choices(letters, k = 5))
@@ -33,7 +34,10 @@ class SnakeJob:
             'apiversion': 'v1',
             'kind': 'Pod', 
             'metadata': {
-                'name': name
+                'name': name,
+                'labels': {
+                    'project': labels
+                }
             },
             'spec': {
                 'containers': [{
@@ -90,6 +94,7 @@ def main():
     c = Configuration()
     c.assert_hostname = False
     Configuration.set_default(c)
+    labels = 'default'
     if args.cmd:
         cmd = ' '.join(args.cmd)
     if args.image:
@@ -113,8 +118,10 @@ def main():
                 memory = setup['memory']
             if 'pvc' in setup:
                 pvc = setup['pvc']
+            if 'labels' in setup:
+                labels = setup['labels']
     jobs  = SnakeJob()
-    jobs.exec_commands(cmd = cmd, image = image, cpu = cpu, memory = memory, pvc = pvc)
+    jobs.exec_commands(cmd = cmd, image = image, cpu = cpu, memory = memory, pvc = pvc, labels = labels)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='turn snakemake jobs to pods')

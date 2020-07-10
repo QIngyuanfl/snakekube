@@ -12,6 +12,6 @@ rule orf_predict:
         p = "meta"
     shell:
         '''
-/home/zhangqy/snakekube/src/snakekube -c "prodigal -i {input} -o {output} -f {params.Format} -g {params.Translate_table} -p {params.p} -q" -r 0.5Gi -s pvc-nas -m orf_predict:v1
+/home/zhangqy/snakekube/src/snakekube -c "prodigal -i {input} -o {output} -f {params.Format} -g {params.Translate_table} -p {params.p} -q" -r 0.5Gi  -f /home/zhangqy/snakekube/example/example.yaml
         '''
 
