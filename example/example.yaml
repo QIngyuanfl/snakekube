@@ -1,0 +1,5 @@
+image: orf_predict:v1
+cmd: sleep 10s
+cpu: 1
+memory: '10Mi'
+pvc: pvc-nas

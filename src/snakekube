@@ -13,19 +13,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import time
 import string
 import random
 import argparse
+import yaml
 from kubernetes import config
 from kubernetes.client import Configuration
 from kubernetes.client.api import core_v1_api
 from kubernetes.client.rest import ApiException
 
 class SnakeJob:
-    def __init__(self):
-        resp = None
     def exec_commands(self, cmd = None, image = None, cpu = None, memory = None, pvc = None, mountPath = '/project'):
         random.seed(time.time())
         letters = string.ascii_lowercase
@@ -81,21 +79,40 @@ class SnakeJob:
         # get stdout from logs
         core_v1_api.CoreV1Api().read_namespaced_pod_log(name, namespace = 'default', follow = True)
         # Check Pod status
+        time.sleep(1)
         resp = core_v1_api.CoreV1Api().read_namespaced_pod(name=name, 
             namespace= 'default')
-        time.sleep(1)
-        assert resp.status.phase == 'Completed', f'pod {name} exit with errors'
+        assert resp.status.phase == 'Succeeded', f'pod {name} exit with errors'
+        core_v1_api.CoreV1Api().delete_namespaced_pod(name, 'default')
 
 def main():
     config.load_kube_config()
     c = Configuration()
     c.assert_hostname = False
     Configuration.set_default(c)
-    cmd = ' '.join(args.cmd)
-    image = args.image
-    cpu = args.cpu
-    memory = args.ram
-    pvc = args.pvc
+    if args.cmd:
+        cmd = ' '.join(args.cmd)
+    if args.image:
+        image = args.image
+    if args.cpu:
+        cpu = args.cpu
+    if args.ram:
+        memory = args.ram
+    if args.pvc:
+        pvc = args.pvc
+    if args.config:
+        with open(args.config) as f:
+            setup = yaml.load(f, Loader = yaml.FullLoader)
+            if 'cmd' in setup:
+                cmd = setup['cmd']
+            if 'image' in setup:
+                image = setup['image']
+            if 'cpu' in setup:
+                cpu = setup['cpu']
+            if 'memory' in setup:
+                memory = setup['memory']
+            if 'pvc' in setup:
+                pvc = setup['pvc']
     jobs  = SnakeJob()
     jobs.exec_commands(cmd = cmd, image = image, cpu = cpu, memory = memory, pvc = pvc)
 
@@ -106,6 +123,6 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--cpu', default = 1, help = 'how many cpus to apply')
     parser.add_argument('-r', '--ram', help = 'how many memories to apply')
     parser.add_argument('-s', '--pvc', help = 'the existing name of a persistance volumens claims')
-    parser.add_argument('--config', help = 'Optionally,  you could provide a yaml configuration file instead of args')
+    parser.add_argument('-f', '--config', help = 'Optionally,  you could provide a yaml configuration file instead of args')
     args = parser.parse_args()
     main()
