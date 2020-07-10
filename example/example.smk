@@ -1,16 +1,17 @@
-mple = ['RCAR1', 'RCAR2', 'RCAR3', 'RCAR4', 'RCAR5', 'RCAR7','RCAR9', 'RCAR10', 'RMAR1']
+workdir: '/'
+sample = ['RCAR1', 'RCAR2', 'RCAR3', 'RCAR4', 'RCAR5', 'RCAR7','RCAR9', 'RCAR10', 'RMAR1']
 rule all:
   input:
-    expand('docker/{s}.gff', s = Sample)
+    expand('/project/RD/kubernetes/{s}.gff', s = sample)
 rule orf_predict:
-    input: "{Sample}/final_Scaftigs.fasta"
-    output: "docker/{Sample}.gff"
+    input: "/project/RD/kubernetes/{sample}/final_Scaftigs.fasta"
+    output: "/project/RD/kubernetes/{sample}.gff"
     params:
         Translate_table = 11,
         Format = "gff",
         p = "meta"
     shell:
         '''
-prodigal -i {input} -o {output} -f {params.Format} -g {params.Translate_table} -p {params.p} -q
+/home/zhangqy/snakekube/src/snakekube -c "prodigal -i {input} -o {output} -f {params.Format} -g {params.Translate_table} -p {params.p} -q" -r 0.5Gi -s pvc-nas -m orf_predict:v1
         '''
 
