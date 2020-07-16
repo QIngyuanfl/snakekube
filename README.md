@@ -15,5 +15,6 @@ labels: MG00001
 cmd: "sleep 10s"
 cpu: 1
 memory: "10Mi"
+# Optional configure
+mountPath: '挂载到容器的路径'
 ```
-

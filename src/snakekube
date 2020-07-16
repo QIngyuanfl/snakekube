@@ -25,7 +25,7 @@ from kubernetes.client.api import core_v1_api
 from kubernetes.client.rest import ApiException
 
 class SnakeJob:
-    def exec_commands(self, cmd = None, image = None, cpu = None, memory = None, pvc = None, mountPath = '/project', labels = None):
+    def exec_commands(self, cmd = None, image = None, cpu = None, memory = None, pvc = None, mountPath = '/', labels = None):
         random.seed(time.time())
         letters = string.ascii_lowercase
         rand_letters = ''.join(random.choices(letters, k = 5))
@@ -59,14 +59,15 @@ class SnakeJob:
                         }
                     },
                     'volumeMounts': [{
-                        'name': pvc,
-                        'mountPath': mountPath
+                        'name': "cache-volume",
+                        'mountPath': '/project'
                         }]
                 }],
                 'volumes': [{
-                    'name': pvc, 
-                    'persistentVolumeClaim': {
-                        'claimName': pvc
+                    'name': "cache-volume", 
+                    'nfs': {
+                        'server': '2817048100-gmm16.cn-shenzhen.nas.aliyuncs.com', 
+                        'path': mountPath
                     }
                 }],
                 'restartPolicy': 'Never'
@@ -78,14 +79,18 @@ class SnakeJob:
             namespace= 'default')
             if resp.status.phase != 'Pending':
                 break
-            time.sleep(1)
+            time.sleep(60)
         print(f'POD {name} Running')
         # get stdout from logs
         core_v1_api.CoreV1Api().read_namespaced_pod_log(name, namespace = 'default', follow = True)
         # Check Pod status
         time.sleep(1)
-        resp = core_v1_api.CoreV1Api().read_namespaced_pod(name=name, 
+        while True:
+            resp = core_v1_api.CoreV1Api().read_namespaced_pod(name=name,
             namespace= 'default')
+            if resp.status.phase != 'Running':
+                break
+            time.sleep(1)
         assert resp.status.phase == 'Succeeded', f'pod {name} exit with errors'
         core_v1_api.CoreV1Api().delete_namespaced_pod(name, 'default')
 
@@ -103,8 +108,6 @@ def main():
         cpu = args.cpu
     if args.ram:
         memory = args.ram
-    if args.pvc:
-        pvc = args.pvc
     if args.config:
         with open(args.config) as f:
             setup = yaml.load(f, Loader = yaml.FullLoader)
@@ -116,12 +119,14 @@ def main():
                 cpu = setup['cpu']
             if 'memory' in setup:
                 memory = setup['memory']
-            if 'pvc' in setup:
-                pvc = setup['pvc']
             if 'labels' in setup:
                 labels = setup['labels']
+            if 'mountPath' in setup:
+               mountPath = setup['mountPath']
+            else:
+               mountPath = '/'
     jobs  = SnakeJob()
-    jobs.exec_commands(cmd = cmd, image = image, cpu = cpu, memory = memory, pvc = pvc, labels = labels)
+    jobs.exec_commands(cmd = cmd, image = image, cpu = cpu, memory = memory, labels = labels, mountPath = mountPath)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='turn snakemake jobs to pods')
@@ -129,7 +134,6 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--cmd', nargs = '+', help = 'shell commad to run in container')
     parser.add_argument('-p', '--cpu', default = 1, help = 'how many cpus to apply')
     parser.add_argument('-r', '--ram', help = 'how many memories to apply')
-    parser.add_argument('-s', '--pvc', help = 'the existing name of a persistance volumens claims')
     parser.add_argument('-f', '--config', help = 'Optionally,  you could provide a yaml configuration file instead of args')
     args = parser.parse_args()
     main()
