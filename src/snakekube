@@ -14,6 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import re
+import os
 import time
 import string
 import random
@@ -29,7 +31,8 @@ class SnakeJob:
         random.seed(time.time())
         letters = string.ascii_lowercase
         rand_letters = ''.join(random.choices(letters, k = 5))
-        name = f'{cmd.split()[0]}-{rand_letters}'
+        cli = re.sub('_|\.', '', cmd.split()[0].lower())
+        name = f'{cli}-{rand_letters}'
         pod_manifest = {
             'apiversion': 'v1',
             'kind': 'Pod', 
@@ -42,7 +45,7 @@ class SnakeJob:
             'spec': {
                 'containers': [{
                     'image': image,
-                    'name': cmd.split()[0],
+                    'name': cli,
                     'args': [
                         'sh',
                         '-c',
@@ -53,10 +56,6 @@ class SnakeJob:
                             'cpu': cpu,
                             'memory': memory
                         },
-                        'limits': {
-                            'cpu': cpu +2,
-                            'memory': memory
-                        }
                     },
                     'volumeMounts': [{
                         'name': "cache-volume",
@@ -79,12 +78,12 @@ class SnakeJob:
             namespace= 'default')
             if resp.status.phase != 'Pending':
                 break
-            time.sleep(60)
+            time.sleep(1)
         print(f'POD {name} Running')
+        time.sleep(1)
         # get stdout from logs
         core_v1_api.CoreV1Api().read_namespaced_pod_log(name, namespace = 'default', follow = True)
         # Check Pod status
-        time.sleep(1)
         while True:
             resp = core_v1_api.CoreV1Api().read_namespaced_pod(name=name,
             namespace= 'default')
@@ -92,8 +91,19 @@ class SnakeJob:
                 break
             time.sleep(1)
         assert resp.status.phase == 'Succeeded', f'pod {name} exit with errors'
+        # detect output 
+        file_regex = re.compile('/project/[^\*|\s]+/[^\*|\s]+\.[^/|\s|\W]+')
+        if len((file_list := file_regex.findall(cmd))) > 0:
+            for files in file_list:
+                n = 0
+                while not os.path.exists(files):
+                    time.sleep(1)
+                    n += 1
+                    if n > 60:
+                        break
+                    
         core_v1_api.CoreV1Api().delete_namespaced_pod(name, 'default')
-
+                    
 def main():
     config.load_kube_config()
     c = Configuration()
