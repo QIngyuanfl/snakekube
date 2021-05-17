@@ -1,3 +1,6 @@
+# 2021/05/17
+- 增加动态更改pod消耗资源的功能。
+- 扫描频率降低以减少网络流量
 # 2021/03/18
 - 规定所有镜像的entrypoint 都为shell
 # 2020/09/02 v1.10
@@ -7,10 +10,20 @@
 # snakekube
 Turn snakemake jobs to kubernetes pods
 ## 使用方法:
-需要事先建好pvc
+
 ```sh
 ./snakekube -c $command -p $cpu -r $ram -s $pvc -m $image -f $config_file
 ```
+
+# 动态更改资源
+```
+# pod_id 是kubectl get po 得到的Name列的信息
+# cpu 是更改后的cpu使用量，单位为个
+# ram 是更改后的内存使用量，单位为Mi/Gi
+
+./snakekube -p $pod_id -c $cpu -r $ram 
+```
+
 ## config_file 格式:
 ``` yaml
 # 建议在yaml写的内容
