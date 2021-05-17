@@ -24,6 +24,10 @@ Turn snakemake jobs to kubernetes pods
 ./snakekube -p $pod_id -c $cpu -r $ram 
 ```
 
+## 使用场景
+1. 集群资源剩余量小于任务申请的资源，导致任务处于Pending状态，可调小Pending的pod的资源，促其运行。也可调小其他运行的资源，使的集群剩余资源量增多。
+2. 发现任务将要超出设定的内存了，可以通过该命令调大该pod使用的内存，避免out of memory。
+
 ## config_file 格式:
 ``` yaml
 # 建议在yaml写的内容
