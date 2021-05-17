@@ -15,7 +15,7 @@ Turn snakemake jobs to kubernetes pods
 snakekube -c $command -p $cpu -r $ram -s $pvc -m $image -f $config_file
 ```
 
-# 动态更改资源
+# 动态更改pod的资源使用量
 ```sh
 # pod_id 是kubectl get po 得到的Name列的信息
 # cpu 是更改后的cpu使用量，单位为个
