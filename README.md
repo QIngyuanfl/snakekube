@@ -12,16 +12,16 @@ Turn snakemake jobs to kubernetes pods
 ## 使用方法:
 
 ```sh
-./snakekube -c $command -p $cpu -r $ram -s $pvc -m $image -f $config_file
+snakekube -c $command -p $cpu -r $ram -s $pvc -m $image -f $config_file
 ```
 
 # 动态更改资源
-```
+```sh
 # pod_id 是kubectl get po 得到的Name列的信息
 # cpu 是更改后的cpu使用量，单位为个
 # ram 是更改后的内存使用量，单位为Mi/Gi
 
-./snakekube -p $pod_id -c $cpu -r $ram 
+snakekube realloc -p $pod_id -c $cpu -r $ram 
 ```
 
 ## 使用场景
