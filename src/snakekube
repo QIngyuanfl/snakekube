@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*- ￼
 # Author: Qingyuan Zhang
-# Date: 2020/07/09
+# Date: 2021/05/17
+# Version: 1.2
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -14,37 +15,51 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import re
+import os
 import time
 import string
 import random
 import argparse
 import yaml
+import pprint
+import kubernetes
 from kubernetes import config
 from kubernetes.client import Configuration
 from kubernetes.client.api import core_v1_api
 from kubernetes.client.rest import ApiException
 
 class SnakeJob:
-    def exec_commands(self, cmd = None, image = None, cpu = None, memory = None, pvc = None, mountPath = '/', labels = None):
+    def exec_commands(self, cmd = None, image = None, cpu = None, memory = None, pvc = None, mountPath = '/', labels = None, nodeSelect = 'all'):
         random.seed(time.time())
         letters = string.ascii_lowercase
         rand_letters = ''.join(random.choices(letters, k = 5))
-        name = f'{cmd.split()[0]}-{rand_letters}'
+        cli = re.sub('_|\.|=|\/', '', cmd.split()[0].lower())
+        name = f'{cli}-{rand_letters}'
         pod_manifest = {
             'apiversion': 'v1',
             'kind': 'Pod', 
             'metadata': {
                 'name': name,
-                'labels': {
+                'annotations': {
+                    "k8s.aliyun.com/eci-image-cache": "true"
+                },
+                'labels':  {
                     'project': labels
-                }
+                } 
+                  
             },
             'spec': {
+                'securityContext':{
+                    'runAsUser': os.getuid(),
+                    'runAsGroup': os.getgid()
+                },
                 'containers': [{
                     'image': image,
-                    'name': cmd.split()[0],
+                    'imagePullPolicy': "IfNotPresent",
+                    'name': cli,
+                    'command': ["/bin/sh"],
                     'args': [
-                        'sh',
                         '-c',
                         cmd
                     ],
@@ -53,10 +68,6 @@ class SnakeJob:
                             'cpu': cpu,
                             'memory': memory
                         },
-                        'limits': {
-                            'cpu': cpu +2,
-                            'memory': memory
-                        }
                     },
                     'volumeMounts': [{
                         'name': "cache-volume",
@@ -73,26 +84,104 @@ class SnakeJob:
                 'restartPolicy': 'Never'
             }
         }
+        if nodeSelect == 'all':
+            pass
+        elif nodeSelect == 'physical':
+            pod_manifest['spec']['nodeSelector'] = {'type': 'physical'}
+        else:
+            pod_manifest['spec']['nodeName'] = nodeSelect
+        
         resp = core_v1_api.CoreV1Api().create_namespaced_pod(body=pod_manifest, namespace='default')
         while True:
             resp = core_v1_api.CoreV1Api().read_namespaced_pod(name=name, 
             namespace= 'default')
             if resp.status.phase != 'Pending':
                 break
-            time.sleep(60)
+            time.sleep(10)
         print(f'POD {name} Running')
+        time.sleep(1)
         # get stdout from logs
         core_v1_api.CoreV1Api().read_namespaced_pod_log(name, namespace = 'default', follow = True)
         # Check Pod status
-        time.sleep(1)
         while True:
             resp = core_v1_api.CoreV1Api().read_namespaced_pod(name=name,
             namespace= 'default')
             if resp.status.phase != 'Running':
                 break
-            time.sleep(1)
-        assert resp.status.phase == 'Succeeded', f'pod {name} exit with errors'
+            time.sleep(10)
+        time.sleep(10)
+        if resp.status.phase == 'Succeeded':
+        # detect output 
+            file_regex = re.compile('/project/[^\*|\s]+/[^\*|\s]+\.[^/|\s|\W]+')
+            if len((file_list := file_regex.findall(cmd))) > 0:
+                for files in file_list:
+                    n = 0
+                    while not os.path.exists(files):
+                        time.sleep(1)
+                        n += 1
+                        if n > 90:
+                            break
+                    
+        if resp.status.phase == 'Failed':
+           with open(f'{name}.log', 'w') as f:
+                f.write(f'startTime:{resp.status.start_time}\n')
+                f.write(f"command:\n{cmd}\n")
+               	f.write(f"{core_v1_api.CoreV1Api().read_namespaced_pod_log(name, namespace = 'default')}")
         core_v1_api.CoreV1Api().delete_namespaced_pod(name, 'default')
+    
+def realloc(args):
+    """
+读取正在运行的pod状态，并重新分配pod的资源(仅使用与物理节点)
+    """
+    poid = args.po
+    ram = args.ram
+    cpu = args.cpu
+    
+
+    config.load_kube_config()
+    c = Configuration()
+    c.assert_hostname = False
+    Configuration.set_default(c)
+
+    with kubernetes.client.ApiClient(c) as api_client:
+        api_core = kubernetes.client.CoreV1Api(api_client)
+        api_custom = kubernetes.client.CustomObjectsApi(api_client)
+    try:
+        api_response = api_core.read_namespaced_pod(poid, "default", pretty=True)
+    except ApiException as e:
+        print("Exception when calling CoreV1Api->read_namespaced_pod: %s\n" % e)
+
+    group = 'resources.alibabacloud.com'
+    version = 'v1alpha1'
+    plural = 'cgroups'
+    body = {
+        'apiVersion': 'resources.alibabacloud.com/v1alpha1', 
+        'kind': 'Cgroups', 
+        'metadata': {
+            'name': f'cgroups-{poid}'}, 
+        'spec': {
+            'pod': {
+                'name': poid, 
+                'namespace': 'default', 
+                'containers': [{
+                    'name': poid, 
+                    'cpu': cpu, 
+                    'memory': ram
+                    }]
+                    }
+                }
+            }
+    try:
+        api_response = api_custom.create_namespaced_custom_object(group, version, 'default', plural, body)
+    except ApiException as e:
+        print("Exception when calling CustomObjectsApi->create_cluster_custom_object: %s\n" % e)
+    
+    time.sleep(0.5)
+    try:
+        api_response = api_custom.delete_namespaced_custom_object(group, version, 'default', plural, f'cgroups-{poid}')
+    except ApiException as e:
+        print("Exception when calling CustomObjectsApi->delete_namespaced_custom_object: %s\n" % e)
+
 
 def main():
     config.load_kube_config()
@@ -100,10 +189,11 @@ def main():
     c.assert_hostname = False
     Configuration.set_default(c)
     labels = 'default'
+    mountPath = '/'
+    nodeSelect = 'all'
+    
     if args.cmd:
         cmd = ' '.join(args.cmd)
-    if args.image:
-        image = args.image
     if args.cpu:
         cpu = args.cpu
     if args.ram:
@@ -122,18 +212,43 @@ def main():
             if 'labels' in setup:
                 labels = setup['labels']
             if 'mountPath' in setup:
-               mountPath = setup['mountPath']
+                mountPath = setup['mountPath']
             else:
-               mountPath = '/'
-    jobs  = SnakeJob()
-    jobs.exec_commands(cmd = cmd, image = image, cpu = cpu, memory = memory, labels = labels, mountPath = mountPath)
+                mountPath = '/'
+            if 'nodeSelect' in setup:
+                nodeSelect = setup['nodeSelect']
+    if args.image:
+        image = args.image
+    if args.local:
+        nodeSelect = 'physical'
+        
+
+    jobs.exec_commands(cmd = cmd, 
+        image = image, 
+        cpu = cpu, 
+        memory = memory,
+        labels = labels, 
+        mountPath = mountPath, 
+        nodeSelect = nodeSelect)
 
 if __name__ == '__main__':
+    jobs = SnakeJob()
     parser = argparse.ArgumentParser(description='turn snakemake jobs to pods')
     parser.add_argument('-m', '--image', help = "Docker image name")
     parser.add_argument('-c', '--cmd', nargs = '+', help = 'shell commad to run in container')
     parser.add_argument('-p', '--cpu', default = 1, help = 'how many cpus to apply')
-    parser.add_argument('-r', '--ram', help = 'how many memories to apply')
+    parser.add_argument('-r', '--ram', help = 'how much memory to apply')
     parser.add_argument('-f', '--config', help = 'Optionally,  you could provide a yaml configuration file instead of args')
+    parser.add_argument('--local', dest = 'local', action = 'store_true', help = 'excute in physical node') 
+    subparsers = parser.add_subparsers()
+    parser_a = subparsers.add_parser('realloc', help = "reallocate resources for a pod")
+    parser_a.add_argument('-p', '--po', required = True, help = "pod id to reallocate resources")
+    parser_a.add_argument('-r', '--ram', required = True, help = 'how much memory to apply')
+    parser_a.add_argument('-c', '--cpu', default = 1, help = 'how many cpus to apply')
+    parser_a.set_defaults(func=realloc)
     args = parser.parse_args()
-    main()
+
+    if hasattr(args, "func"):
+        args.func(args)
+    else:
+        main()

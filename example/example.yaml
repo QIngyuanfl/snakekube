@@ -1,3 +1,4 @@
-image: orf_predict:v1
-pvc: pvc-nas
+image: registry.cn-shenzhen.aliyuncs.com/magigene/metagenome:virus_pipe.v4.1
 labels: MG0000001
+#nodeSelect（nodeName/all/physical） 指定节点运行则填写指定的节点名称， 填写all则在资源不足的情况下使用虚拟节点，填写physic 则在物理节点下运行任务
+nodeSelect: physical
