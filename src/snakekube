@@ -22,12 +22,12 @@ import string
 import random
 import argparse
 import yaml
-import pprint
 import kubernetes
 from kubernetes import config
 from kubernetes.client import Configuration
 from kubernetes.client.api import core_v1_api
 from kubernetes.client.rest import ApiException
+from yaml import nodes
 
 class SnakeJob:
     def exec_commands(self, cmd = None, image = None, cpu = None, memory = None, pvc = None, mountPath = '/', labels = None, nodeSelect = 'all'):
@@ -89,7 +89,7 @@ class SnakeJob:
         elif nodeSelect == 'physical':
             pod_manifest['spec']['nodeSelector'] = {'type': 'physical'}
         else:
-            pod_manifest['spec']['nodeName'] = nodeSelect
+            pod_manifest['spec']['nodeSelector'] = {'kubernetes.io/hostname': nodeSelect}
         
         resp = core_v1_api.CoreV1Api().create_namespaced_pod(body=pod_manifest, namespace='default')
         while True:
@@ -119,14 +119,14 @@ class SnakeJob:
                     while not os.path.exists(files):
                         time.sleep(1)
                         n += 1
-                        if n > 90:
+                        if n > 120:
                             break
                     
         if resp.status.phase == 'Failed':
            with open(f'{name}.log', 'w') as f:
                 f.write(f'startTime:{resp.status.start_time}\n')
                 f.write(f"command:\n{cmd}\n")
-               	f.write(f"{core_v1_api.CoreV1Api().read_namespaced_pod_log(name, namespace = 'default')}")
+                f.write(f"{core_v1_api.CoreV1Api().read_namespaced_pod_log(name, namespace = 'default')}")
         core_v1_api.CoreV1Api().delete_namespaced_pod(name, 'default')
     
 def realloc(args):
@@ -221,6 +221,8 @@ def main():
         image = args.image
     if args.local:
         nodeSelect = 'physical'
+    if args.node:
+        nodeSelect = args.node
         
 
     jobs.exec_commands(cmd = cmd, 
@@ -239,7 +241,8 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--cpu', default = 1, help = 'how many cpus to apply')
     parser.add_argument('-r', '--ram', help = 'how much memory to apply')
     parser.add_argument('-f', '--config', help = 'Optionally,  you could provide a yaml configuration file instead of args')
-    parser.add_argument('--local', dest = 'local', action = 'store_true', help = 'excute in physical node') 
+    parser.add_argument('--local', dest = 'local', action = 'store_true', help = 'excute in physical node')
+    parser.add_argument('-n', '--node', help = 'Select a node or node label to execute')
     subparsers = parser.add_subparsers()
     parser_a = subparsers.add_parser('realloc', help = "reallocate resources for a pod")
     parser_a.add_argument('-p', '--po', required = True, help = "pod id to reallocate resources")
