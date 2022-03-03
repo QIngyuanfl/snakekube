@@ -1,0 +1,35 @@
+#!/usr/bin/bash
+function _snakekube() {
+    # 使用bash wildcards 拓展
+    shopt -s extglob
+    # 命令名称
+    local cmd="{##*/}"
+    # 当前cursor在命令行的index
+    local cur=${COMP_WORDS[COMP_CWORD]}
+    local prev=${COMP_WORDS[COMP_CWORD-1]}
+    local xpat
+    
+    case "${prev}" in 
+    "-m")
+        xpat='REPOSITORY'
+        # wordbreaks 去掉冒号
+        COMP_WORDBREAKS=${COMP_WORDBREAKS//:}
+        COMPREPLY=($(compgen -W "$(docker images|awk '{printf $1":"$2"\n"}')"  -X "${xpat}" -- "${cur}"))
+        ;;
+    "-n")
+        xpat='NAME'
+        node=$(kubectl get no|awk '{print $1}')
+        node="${node} all physical"
+        COMPREPLY=($(compgen -W "${node}" -X "${xpat}" -- "${cur}"))
+        ;;
+    "-f")
+        COMPREPLY=($(compgen -f -- "${cur}"))
+        ;;
+    *)
+        COMPREPLY=($(compgen -W "realloc -h" -- "${cur}"))
+        
+    esac
+        
+}
+
+complete -F _snakekube snakekube

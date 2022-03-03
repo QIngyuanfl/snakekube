@@ -15,32 +15,51 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import datetime
 import re
 import os
 import time
 import string
 import random
 import argparse
+import pandas as pd
 import yaml
 import kubernetes
-from kubernetes import config
+from kubernetes import config,client
 from kubernetes.client import Configuration
 from kubernetes.client.api import core_v1_api
 from kubernetes.client.rest import ApiException
-from yaml import nodes
+
 
 class SnakeJob:
-    def exec_commands(self, cmd = None, image = None, cpu = None, memory = None, pvc = None, mountPath = '/', labels = None, nodeSelect = 'all'):
+    def __init__(self) -> None:
+        self.name = ""
+        self.monitor = False
+
+    def watch_commands(self) -> dict:
+        """
+        return pods resource metrics
+        """
+        api = client.CustomObjectsApi()
+        selector = f'metadata.name={self.name}'
+        
+        pods = api.list_cluster_custom_object("metrics.k8s.io", "v1beta1", "pods", field_selector = selector)
+        if pods['items'] != []:
+            return pods['items'][0]['containers'][0]['usage']
+        else:
+            return {'cpu':'0', 'memory':'0'}
+
+    def exec_commands(self, cmd = None, image = None, cpu = None, memory = None, pvc = None, mountPath = '/', labels = None, nodeSelect = 'all', iswatch = False):
         random.seed(time.time())
         letters = string.ascii_lowercase
         rand_letters = ''.join(random.choices(letters, k = 5))
         cli = re.sub('_|\.|=|\/', '', cmd.split()[0].lower())
-        name = f'{cli}-{rand_letters}'
+        self.name = f'{cli}-{rand_letters}'
         pod_manifest = {
             'apiversion': 'v1',
             'kind': 'Pod', 
             'metadata': {
-                'name': name,
+                'name': self.name,
                 'annotations': {
                     "k8s.aliyun.com/eci-image-cache": "true"
                 },
@@ -93,19 +112,43 @@ class SnakeJob:
         
         resp = core_v1_api.CoreV1Api().create_namespaced_pod(body=pod_manifest, namespace='default')
         while True:
-            resp = core_v1_api.CoreV1Api().read_namespaced_pod(name=name, 
+            resp = core_v1_api.CoreV1Api().read_namespaced_pod(name=self.name, 
             namespace= 'default')
             if resp.status.phase != 'Pending':
                 break
             time.sleep(10)
-        print(f'POD {name} Running')
+        print(f'POD {self.name} Running')
         time.sleep(1)
         # get stdout from logs
-        core_v1_api.CoreV1Api().read_namespaced_pod_log(name, namespace = 'default', follow = True)
+        core_v1_api.CoreV1Api().read_namespaced_pod_log(self.name, namespace = 'default', follow = True)
         # Check Pod status
+        if iswatch:
+            count = 0
+            tmp_memory = 0
+            cpu = 0
         while True:
-            resp = core_v1_api.CoreV1Api().read_namespaced_pod(name=name,
+            resp = core_v1_api.CoreV1Api().read_namespaced_pod(name=self.name,
             namespace= 'default')
+            if iswatch:
+                usage = self.watch_commands()
+                table_file =  'Check_utility_for_Sample.txt'
+                if_table = os.path.exists(table_file)
+                if if_table:
+                    df = pd.read_table(table_file, index_col = 'Queue')
+                else:
+                    count += 1
+                    df = pd.DataFrame(columns = ['RunTime(min)', 'MaxMemory(Ki)', 'MeanLoad(n)'])
+                    df.index.name = 'Queue'
+                    cpu += float(re.search('\d*', usage['cpu']).group())
+                    mean_cpu = cpu/count
+                    memory = float(re.search('\d*', usage['memory']).group())
+                    runtime = (datetime.datetime.now(datetime.timezone.utc) - resp.status.start_time).total_seconds()/60
+                    if memory > tmp_memory:
+                        df.loc[self.name] = [runtime, memory, mean_cpu]
+                    else:
+                        df.loc[self.name] = [runtime, tmp_memory, mean_cpu]
+                df.to_csv('Check_utility_for_Sample.txt', sep = '\t')
+                    
             if resp.status.phase != 'Running':
                 break
             time.sleep(10)
@@ -123,25 +166,19 @@ class SnakeJob:
                             break
                     
         if resp.status.phase == 'Failed':
-           with open(f'{name}.log', 'w') as f:
+           with open(f'{self.name}.log', 'w') as f:
                 f.write(f'startTime:{resp.status.start_time}\n')
                 f.write(f"command:\n{cmd}\n")
-                f.write(f"{core_v1_api.CoreV1Api().read_namespaced_pod_log(name, namespace = 'default')}")
-        core_v1_api.CoreV1Api().delete_namespaced_pod(name, 'default')
+                f.write(f"{core_v1_api.CoreV1Api().read_namespaced_pod_log(self.name, namespace = 'default')}")
+        core_v1_api.CoreV1Api().delete_namespaced_pod(self.name, 'default')
     
-def realloc(args):
+def realloc(args,c):
     """
 读取正在运行的pod状态，并重新分配pod的资源(仅使用与物理节点)
     """
     poid = args.po
     ram = args.ram
     cpu = args.cpu
-    
-
-    config.load_kube_config()
-    c = Configuration()
-    c.assert_hostname = False
-    Configuration.set_default(c)
 
     with kubernetes.client.ApiClient(c) as api_client:
         api_core = kubernetes.client.CoreV1Api(api_client)
@@ -185,8 +222,11 @@ def realloc(args):
 
 def main():
     config.load_kube_config()
-    c = Configuration()
-    c.assert_hostname = False
+    try:
+        c = Configuration().get_default_copy()
+    except AttributeError:
+        c = Configuration()
+        c.assert_hostname = False
     Configuration.set_default(c)
     labels = 'default'
     mountPath = '/'
@@ -223,15 +263,19 @@ def main():
         nodeSelect = 'physical'
     if args.node:
         nodeSelect = args.node
-        
-
+    if args.watch:
+        watch = True
+    else:
+        watch = False
+    
     jobs.exec_commands(cmd = cmd, 
         image = image, 
         cpu = cpu, 
         memory = memory,
         labels = labels, 
         mountPath = mountPath, 
-        nodeSelect = nodeSelect)
+        nodeSelect = nodeSelect,
+        iswatch = watch)
 
 if __name__ == '__main__':
     jobs = SnakeJob()
@@ -242,6 +286,7 @@ if __name__ == '__main__':
     parser.add_argument('-r', '--ram', help = 'how much memory to apply')
     parser.add_argument('-f', '--config', help = 'Optionally,  you could provide a yaml configuration file instead of args')
     parser.add_argument('--local', dest = 'local', action = 'store_true', help = 'excute in physical node')
+    parser.add_argument('-w', '--watch', dest = 'watch', action = 'store_true', help = 'Obtain current pod resource matric')
     parser.add_argument('-n', '--node', help = 'Select a node or node label to execute')
     subparsers = parser.add_subparsers()
     parser_a = subparsers.add_parser('realloc', help = "reallocate resources for a pod")
@@ -250,7 +295,7 @@ if __name__ == '__main__':
     parser_a.add_argument('-c', '--cpu', default = 1, help = 'how many cpus to apply')
     parser_a.set_defaults(func=realloc)
     args = parser.parse_args()
-
+    
     if hasattr(args, "func"):
         args.func(args)
     else:
