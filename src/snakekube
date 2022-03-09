@@ -136,17 +136,17 @@ class SnakeJob:
                 if if_table:
                     df = pd.read_table(table_file, index_col = 'Queue')
                 else:
-                    count += 1
                     df = pd.DataFrame(columns = ['RunTime(min)', 'MaxMemory(Ki)', 'MeanLoad(n)'])
                     df.index.name = 'Queue'
-                    cpu += float(re.search('\d*', usage['cpu']).group())
-                    mean_cpu = cpu/count
-                    memory = float(re.search('\d*', usage['memory']).group())
-                    runtime = (datetime.datetime.now(datetime.timezone.utc) - resp.status.start_time).total_seconds()/60
-                    if memory > tmp_memory:
-                        df.loc[self.name] = [runtime, memory, mean_cpu]
-                    else:
-                        df.loc[self.name] = [runtime, tmp_memory, mean_cpu]
+                count += 1
+                cpu += float(re.search('\d*', usage['cpu']).group())
+                mean_cpu = cpu/count
+                memory = float(re.search('\d*', usage['memory']).group())
+                runtime = (datetime.datetime.now(datetime.timezone.utc) - resp.status.start_time).total_seconds()/60
+                if memory > tmp_memory:
+                    df.loc[self.name] = [runtime, memory, mean_cpu]
+                else:
+                    df.loc[self.name] = [runtime, tmp_memory, mean_cpu]
                 df.to_csv('Check_utility_for_Sample.txt', sep = '\t')
                     
             if resp.status.phase != 'Running':
