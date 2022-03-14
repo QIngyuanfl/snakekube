@@ -123,9 +123,10 @@ class SnakeJob:
         core_v1_api.CoreV1Api().read_namespaced_pod_log(self.name, namespace = 'default', follow = True)
         # Check Pod status
         if iswatch:
-            count = 0
+            count = 1
             tmp_memory = 0
             cpu = 0
+            mean_cpu = 0
         while True:
             resp = core_v1_api.CoreV1Api().read_namespaced_pod(name=self.name,
             namespace= 'default')
@@ -138,13 +139,15 @@ class SnakeJob:
                 else:
                     df = pd.DataFrame(columns = ['RunTime(min)', 'MaxMemory(Ki)', 'MeanLoad(n)'])
                     df.index.name = 'Queue'
-                count += 1
-                cpu += float(re.search('\d*', usage['cpu']).group())
-                mean_cpu = cpu/count
+                if float(re.search('\d*', usage['cpu']).group()) != 0:
+                    cpu += float(re.search('\d*', usage['cpu']).group())
+                    count += 1
+                    mean_cpu = cpu/count
                 memory = float(re.search('\d*', usage['memory']).group())
                 runtime = (datetime.datetime.now(datetime.timezone.utc) - resp.status.start_time).total_seconds()/60
                 if memory > tmp_memory:
                     df.loc[self.name] = [runtime, memory, mean_cpu]
+                    tmp_memory = memory
                 else:
                     df.loc[self.name] = [runtime, tmp_memory, mean_cpu]
                 df.to_csv('Check_utility_for_Sample.txt', sep = '\t')
