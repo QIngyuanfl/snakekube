@@ -224,13 +224,7 @@ def realloc(args,c):
 
 
 def main():
-    config.load_kube_config()
-    try:
-        c = Configuration().get_default_copy()
-    except AttributeError:
-        c = Configuration()
-        c.assert_hostname = False
-    Configuration.set_default(c)
+    
     labels = 'default'
     mountPath = '/'
     nodeSelect = 'all'
@@ -281,6 +275,13 @@ def main():
         iswatch = watch)
 
 if __name__ == '__main__':
+    config.load_kube_config()
+    try:
+        c = Configuration().get_default_copy()
+    except AttributeError:
+        c = Configuration()
+        c.assert_hostname = False
+    Configuration.set_default(c)
     jobs = SnakeJob()
     parser = argparse.ArgumentParser(description='turn snakemake jobs to pods')
     parser.add_argument('-m', '--image', help = "Docker image name")
@@ -300,6 +301,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     if hasattr(args, "func"):
-        args.func(args)
+        args.func(args,c)
     else:
         main()
