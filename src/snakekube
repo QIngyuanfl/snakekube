@@ -53,7 +53,7 @@ class SnakeJob:
         random.seed(time.time())
         letters = string.ascii_lowercase
         rand_letters = ''.join(random.choices(letters, k = 5))
-        cli = re.sub('_|\.|=|\/', '', cmd.split()[0].lower())
+        cli = re.sub('_|\.|=|\/', '', os.path.basename(cmd.split()[0]).lower())
         self.name = f'{cli}-{rand_letters}'
         pod_manifest = {
             'apiversion': 'v1',
